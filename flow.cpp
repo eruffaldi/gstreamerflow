@@ -76,12 +76,23 @@ GstreamerStep::GstreamerStep(std::string xpipeline, bool started, int buffers)
     if(started)
 	    gst_element_set_state(pipeline, GST_STATE_PLAYING);
 
+	// bus = gst_pipeline_get_bus (GST_PIPELINE (app->pipeline));
 
 }
 
 GstreamerStep::~GstreamerStep()
 {
+	gst_element_send_event(pipeline, gst_event_new_eos());
+	/*
+	GstEvent* flush_start = gst_event_new_flush_start(); 
+	gboolean ret = FALSE; 
+	ret = gst_element_send_event(GST_ELEMENT(pipeline), flush_start); 
+	GstEvent* flush_stop = gst_event_new_flush_stop(TRUE); 
+	ret = gst_element_send_event(GST_ELEMENT(pipeline), flush_stop); 
+	*/
+
 	gst_element_set_state (pipeline, GST_STATE_NULL);
+	std::cout << "closing\n";
 	gst_object_unref (pipeline);
 }
  
@@ -125,6 +136,8 @@ void GstreamerStep::operator >>(std::vector<uint8_t> & out)
 
 void GstreamerStep::operator <<(const std::vector<uint8_t> & out)
 {
+	static int q = 0;
+	q++;
 	if(!appsrc)
 		return;
 	if(out.empty())
@@ -139,6 +152,7 @@ void GstreamerStep::operator <<(const std::vector<uint8_t> & out)
 		gpointer p = g_malloc(out.size());
 		memcpy(p,&out[0],out.size());
 		GstBuffer * buffer = gst_buffer_new_wrapped(p,out.size());
+		buffer->duration = 25000000 + 1000000*(q % 5); // 
 		gst_app_src_set_caps(appsrc,c);
 		gst_app_src_push_buffer(appsrc,buffer);
 		/*
@@ -198,11 +212,11 @@ int main(int argc, char * argv[])
 		//testminimal();
 	GstreamerStep src("videotestsrc ! video/x-raw,format=(string)RGB,width=640,height=480 ! appsink name=sink");
 	GstreamerStep dst("appsrc name=source ! queue ! appsink name=sink");
-	GstreamerStep ter("appsrc name=source ! queue ! osxvideosink");
+	GstreamerStep ter("appsrc name=source ! videoconvert ! vtenc_h264 ! mp4mux ! filesink location=x.mp4");
 	std::vector<uint8_t> buffer;
 	std::vector<uint8_t> buffer2;
 	//std::thread tx(playersink,std::ref(dst));
-	for(int i = 0; i < 10000; i++)
+	for(int i = 0; i < 100; i++)
 	{
 		src >> buffer;
 		std::cout << buffer.size() << std::endl;
@@ -211,7 +225,9 @@ int main(int argc, char * argv[])
 		std::cout << "!" << buffer2.size() << std::endl;
 		ter << buffer2;
 	}
+	// EOS
 	buffer.clear();
 	dst << buffer; 
+	ter << buffer;
 	return 0;
 }
